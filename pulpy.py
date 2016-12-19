@@ -1,73 +1,121 @@
-# PuLP documentation : https://pythonhosted.org/PuLP/CaseStudies/a_blending_problem.html
+# Version 3 : Simulation
 
-# Version 2 : Manage variables using dictionaries
+from datetime import datetime, timedelta
 
-from pulp import *
+def get_portfolio_metrics(lots):
+    _cost = dict()
+    _vol = dict()
+    _min_cost_price = dict()
+    _oldest_lot_date = dict()
+    for lot in lots:
+        scrip, n, price, buy_date = lot
+        buy_date = datetime.strptime(buy_date, '%Y-%m-%d')
+        if not _cost.has_key(scrip):
+            _cost[scrip] = 0.0
+            _vol[scrip] = 0
+            _min_cost_price[scrip] = price
+            _oldest_lot_date[scrip] = buy_date
+        _cost[scrip] += float(n) * float(price)
+        _vol[scrip] += n
+        if _min_cost_price[scrip] > price:
+            _min_cost_price[scrip] = price
+        if _oldest_lot_date[scrip] > buy_date:
+            _oldest_lot_date[scrip] = buy_date
+    return _cost, _vol, _min_cost_price, _oldest_lot_date
 
-ndays = 45.0 # Days invested
-amount = 3200.0 # Amount invested
-max_percentage_of_portfolio = 45.0
 
-print "# of days invested = ", ndays
-print "Investment amount = ", amount
+def get_market_info(day):
+    prices = [{'SINO': 0.88, 'FSAM': 6.7, 'AAPL': 100},
+              {'SINO': 1.20, 'FSAM': 5.8, 'AAPL': 101},
+              {'SINO': 0.75, 'FSAM': 5.9, 'AAPL': 95}]
+    return prices[day]
+
+
+def sell(existing_portfolio, mkt_prices, min_gain_pct, max_days_hold, depository_fee,
+         date_format_str='%Y-%m-%d'):
+    _sold_lots = []
+    _profit = 0.0
+    _held_lots = []
+
+    sell_date = datetime.now().strftime(date_format_str)
+    print "Today : ", sell_date
+
+    oldest_permitted_date = datetime.now() - timedelta(days=max_days_hold)
+    print "Will sell all lots bought before ", oldest_permitted_date
+
+    for _lot in existing_portfolio:
+        scrip, n, costprice, buy_date = _lot
+
+        mkt_price = mkt_prices[scrip]
+
+        # Sell lots satisfying these criteria:
+        # 1. Held longer than max_days_old
+        # 2. Gained at least min_gain_pct
+        if oldest_permitted_date > datetime.strptime(buy_date, date_format_str)\
+                or mkt_price >= (min_gain_pct / 100 * costprice):
+            _proceeds = mkt_price * n - depository_fee
+            _txn_profit = _proceeds - (n * costprice)
+            print "Sold %d shares of %s @ price %.2f with profit/loss of %.2f, txn value = %.2f" \
+                  % (n, scrip, mkt_price, _txn_profit, _proceeds)
+            sold_lots.append((scrip, n, costprice, buy_date, mkt_price, depository_fee, sell_date))
+            _profit += _txn_profit
+        else:
+            _held_lots.append(_lot)
+
+    return _held_lots, _sold_lots, _profit
+
+
+
+n_days = 1
+init_amount = 3200.0 # Amount invested
+max_percentage_of_portfolio = 33.33
+min_gain_pct = 2
+max_days_hold = 180
+depository_fee = 0.03
+
+print "# of days in simulation = ", n_days
+print "Initial investment amount = ", init_amount
 print "Max % of portfolio per scrip = ", max_percentage_of_portfolio
+print "Minimum gain % for sale = ", min_gain_pct
+print "Max days to hold lots = ", max_days_hold
+print "Depository Fee per transaction = ", depository_fee
 print "-----"
 
 
-# i is the scrip
-price = {'SINO': 1.2, 'AAPL': 100.0, 'FSAM': 5.9}
-scrips = price.keys()
-change = {'SINO': 0.2, 'AAPL': 1.01, 'FSAM': 0.4}
-days = {'SINO': 5.0, 'AAPL': 30.0, 'FSAM': 15.0}
-
-
-# Create the 'prob' variable to contain the problem data
-prob = LpProblem("Portfolio Gain Prediction", LpMaximize)
-
-
-# A dictionary called volume_vars is created to contain the referenced Variables
-volume_vars = LpVariable.dicts("n", scrips, lowBound=0, cat=LpInteger)
-
-
-# The objective function is added to 'prob' first
-# Objective : Maximize gain_percent
-# gain_per_day = ndays / amount * 100 * sum ( c_i / d_i)
-m_const = ndays / amount * 100.0
-gain_per_day = {k : m_const * v / days[k] for k, v in change.items()}
-prob += lpSum([gain_per_day[i] * volume_vars[i] for i in scrips]), "Expected gain %"
-
-
-# Constraint on investment in portfolio
-# sum ( p_i * a_i ) == amount
-prob += lpSum([price[i] * volume_vars[i] for i in scrips]) <= amount, "Investment in portfolio"
-
-
-# Constraints on percentage of portfolio that can be invested in scrip i
-for i in scrips:
-    prob += price[i] * volume_vars[i] <= max_percentage_of_portfolio / 100 * amount
-
-
-prob.writeLP("GainPrediction.lp")
-
-prob.solve()
-
-prob_vars = prob.variables()
-
-# Each of the variables is printed with it's resolved optimum value
-for v in prob.variables():
-    print v.name, "=",  v.varValue
-
-
-# The optimised objective function value is printed to the screen
-print "Expected gain % = ", value(prob.objective)
-print "Value of investment", sum([price[k] * v.value() for k, v in volume_vars.items()])
-print "------"
-
-# print prob
-
-print "Picture abhi baaki hain mere dost ...."
+investment_at_day_open = [init_amount]
+deposit_at_day_open = [0]
+withdrawal_at_day_open = [0]
+portfolio_lots_at_day_open = [list()]
+# portfolio_lots_at_day_open = [[('SINO', 100, 0.5, '2016-12-01'), ('SINO', 50, 1, '2016-01-01'),
+#                                ('AAPL', 1, 105, '2016-09-01')]]
 
 
 
+for day in range(n_days):
+    print "Day ", day
+
+    portfolio_lots_at_open = portfolio_lots_at_day_open[day]
+
+    # cost, vol, min_cost_price, oldest_lot_date = get_portfolio_metrics(portfolio_lots_at_open)
+    # print "cost", cost
+    # print "vol", vol
+    # print "min_cost_price", min_cost_price
+    # print "oldest_lot_date", oldest_lot_date
+    #
+    # investment_in_stocks = sum([c for c in cost.values()])
+    # print "Amount invested : ", investment_in_stocks
+    #
+    # cash_available = investment_at_day_open[day] - investment_in_stocks
+    # print "Amount available for investing : ", cash_available
+    #
+    # print "Current Share of portfolio"
+    # print {k : v/(investment_at_day_open[day])*100 for k,v in cost.items()}
+
+    prices_now = get_market_info(day)
+    held_lots, sold_lots, profit = sell(portfolio_lots_at_open, prices_now, min_gain_pct,
+                                        max_days_hold, depository_fee)
+
+    portfolio_lots_at_day_open.append(held_lots)
 
 
+print "\n\n\nPicture abhi baaki hain mere dost ...."
